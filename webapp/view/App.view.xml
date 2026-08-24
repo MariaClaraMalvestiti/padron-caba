@@ -77,6 +77,33 @@
         </VBox>
       </VBox>
 
+      <Panel
+        headerText="Estado del procesamiento"
+        visible="{= ${app>/jobId} !== '' }"
+        class="jobPanel contentInner sapUiResponsiveContentPadding sapUiSmallMarginTop">
+        <VBox renderType="Bare">
+          <HBox wrap="Wrap" alignItems="Center" class="sapUiTinyMarginBottom">
+            <ObjectStatus
+              title="Estado"
+              text="{app>/jobStatusText}"
+              state="{app>/jobState}"
+              icon="sap-icon://synchronize"
+              class="sapUiSmallMarginEnd"/>
+            <Text text="{= 'Proceso: ' + ${app>/jobId} }"/>
+          </HBox>
+          <ProgressIndicator
+            percentValue="{app>/jobProgress}"
+            displayValue="{app>/jobProgressText}"
+            state="{app>/jobState}"
+            width="100%"
+            class="sapUiTinyMarginBottom"/>
+          <MessageStrip
+            text="{app>/jobMessage}"
+            type="{app>/jobState}"
+            showIcon="true"/>
+        </VBox>
+      </Panel>
+
       <IconTabBar class="contentInner sapUiResponsiveContentPadding" expandable="false">
         <items>
           <IconTabFilter text="Log" icon="sap-icon://message-popup">

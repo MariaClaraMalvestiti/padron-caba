@@ -6,7 +6,7 @@
     "title": "Carga de Padrones",
     "description": "Carga mensual de padrones TXT para condition records de percepciones.",
     "applicationVersion": {
-      "version": "0.1.2"
+      "version": "0.1.3"
     },
     "sourceTemplate": {
       "id": "@sap/ux-app-migrator:freestyle",

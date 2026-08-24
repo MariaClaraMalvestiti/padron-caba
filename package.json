@@ -1,0 +1,15 @@
+{
+  "name": "padron-caba",
+  "version": "0.1.3",
+  "private": true,
+  "description": "Interfaz SAPUI5 para el procesamiento del padron CABA.",
+  "scripts": {
+    "start": "ui5 serve --open index.html",
+    "build": "ui5 build --clean-dest",
+    "test": "node tests/ui-state.unit.js"
+  },
+  "devDependencies": {
+    "@ui5/cli": "^3.11.6"
+  }
+}
+

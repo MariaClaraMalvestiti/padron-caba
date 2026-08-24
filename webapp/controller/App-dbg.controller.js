@@ -6,6 +6,8 @@ sap.ui.define([
 ], function (Controller, JSONModel, MessageToast, MessageBox) {
   "use strict";
 
+  const DISPLAY_COMPANY_CODE = "2384";
+
   const INITIAL_STATE = {
     fileName: "",
     fileContent: "",
@@ -23,7 +25,12 @@ sap.ui.define([
     jobId: "",
     jobStatus: "",
     jobStartedAt: "",
-    jobFinishedAt: ""
+    jobFinishedAt: "",
+    jobProgress: 0,
+    jobProgressText: "",
+    jobStatusText: "",
+    jobState: "Information",
+    jobMessage: ""
   };
 
   return Controller.extend("padrones.taxupload.controller.App", {
@@ -42,6 +49,10 @@ sap.ui.define([
           type: "Information",
           text: "Consultando estado del ultimo job..."
         }]);
+        this.getView().getModel("app").setProperty("/jobProgress", 5);
+        this.getView().getModel("app").setProperty("/jobProgressText", "Cargando... 5%");
+        this.getView().getModel("app").setProperty("/jobStatusText", "Consultando");
+        this.getView().getModel("app").setProperty("/jobMessage", "Consultando estado del ultimo job...");
 
         this._pollJobStatus(sLastJobId);
       }
@@ -66,7 +77,7 @@ sap.ui.define([
         }
 
         const oData = await oResponse.json();
-        const aCompanyCodes = Array.isArray(oData.companyCodes)
+        const aCompanyCodes = (Array.isArray(oData.companyCodes)
           ? oData.companyCodes.map(function (oCompany) {
               const sCode = String(oCompany.companyCode || "");
               const sName = String(oCompany.companyCodeName || "");
@@ -77,14 +88,13 @@ sap.ui.define([
                 displayText: sCode + (sName ? " - " + sName : "")
               };
             })
-          : [];
+          : []).filter(function (oCompany) {
+            return oCompany.companyCode === DISPLAY_COMPANY_CODE;
+          });
 
         oModel.setProperty("/companyCodes", aCompanyCodes);
 
-        if (
-          aCompanyCodes.length === 1 &&
-          !oModel.getProperty("/companyCode")
-        ) {
+        if (aCompanyCodes.length === 1) {
           oModel.setProperty(
             "/companyCode",
             aCompanyCodes[0].companyCode
@@ -427,6 +437,11 @@ sap.ui.define([
         oModel.setProperty("/jobStatus", oJob.status);
         window.localStorage.setItem("padronesLastJobId", oJob.id);
         oModel.setProperty("/jobStartedAt", oJob.startedAt || "");
+        oModel.setProperty("/jobProgress", 5);
+        oModel.setProperty("/jobProgressText", "Cargando... 5%");
+        oModel.setProperty("/jobStatusText", "En proceso");
+        oModel.setProperty("/jobState", "Information");
+        oModel.setProperty("/jobMessage", "Job creado. El procesamiento continuara aunque cierres la pestana.");
         oModel.setProperty("/messages", [{
           type: "Information",
           text: "Job en proceso. ID: " + oJob.id + ". Inicio: " + this._formatDateTime(oJob.startedAt)
@@ -475,13 +490,26 @@ sap.ui.define([
 
         const oJob = await oResponse.json();
         const bFinished = this._isTerminalJobStatus(oJob.status);
+        const iTotalRows = Number(
+          oJob.totalRows ||
+          oJob.TotalRows ||
+          oModel.getProperty("/totalRows") ||
+          0
+        );
+        const iProgress = this._calculateJobProgress(oJob);
 
+        oModel.setProperty("/jobId", oJob.id || sJobId);
         oModel.setProperty("/jobStatus", oJob.status || "");
         oModel.setProperty("/jobStartedAt", oJob.startedAt || "");
         oModel.setProperty("/jobFinishedAt", oJob.finishedAt || "");
-        oModel.setProperty("/totalRows", oJob.totalRows || oModel.getProperty("/totalRows") || 0);
+        oModel.setProperty("/totalRows", iTotalRows);
         oModel.setProperty("/validRows", oJob.validRows || oModel.getProperty("/validRows") || 0);
         oModel.setProperty("/errorRows", oJob.errorCount || 0);
+        oModel.setProperty("/jobProgress", iProgress);
+        oModel.setProperty("/jobProgressText", this._buildProgressText(oJob.status, iProgress));
+        oModel.setProperty("/jobStatusText", this._formatJobStatus(oJob.status));
+        oModel.setProperty("/jobState", this._jobValueState(oJob.status));
+        oModel.setProperty("/jobMessage", oJob.message || "Procesamiento en segundo plano.");
         oModel.setProperty("/messages", [this._buildJobMessage(oJob)]);
 
         if (bFinished) {
@@ -499,6 +527,9 @@ sap.ui.define([
       } catch (oError) {
         this._stopJobPolling();
         oModel.setProperty("/busy", false);
+        oModel.setProperty("/jobStatusText", "Error de consulta");
+        oModel.setProperty("/jobState", "Error");
+        oModel.setProperty("/jobMessage", "No se pudo consultar el estado del job. " + (oError.message || oError));
         oModel.setProperty("/messages", [{
           type: "Error",
           text: "No se pudo consultar el estado del job. " + (oError.message || oError)
@@ -512,6 +543,69 @@ sap.ui.define([
         sStatus === "ERROR";
     },
 
+    _calculateJobProgress: function (oJob) {
+      if (this._isTerminalJobStatus(oJob.status)) {
+        return 100;
+      }
+
+      const sMessage = String(oJob.message || "");
+      const aMatch = sMessage.match(/(?:Procesando|Procesado|Error en)\s+(\d+)\s*\/\s*(\d+)/i);
+
+      if (aMatch) {
+        const iProcessed = Number(aMatch[1]);
+        const iTotal = Number(aMatch[2]);
+
+        if (iTotal > 0) {
+          return Math.max(1, Math.min(99, Math.round(iProcessed * 100 / iTotal)));
+        }
+      }
+
+      return oJob.status === "EN_PROCESO" ? 5 : 0;
+    },
+
+    _buildProgressText: function (sStatus, iProgress) {
+      if (sStatus === "FINALIZADO") {
+        return "Finalizado";
+      }
+
+      if (sStatus === "FINALIZADO_CON_ERRORES") {
+        return "Finalizado con errores";
+      }
+
+      if (sStatus === "ERROR") {
+        return "Error";
+      }
+
+      return "Cargando... " + iProgress + "%";
+    },
+
+    _formatJobStatus: function (sStatus) {
+      const oLabels = {
+        EN_PROCESO: "En proceso",
+        FINALIZADO: "Finalizado",
+        FINALIZADO_CON_ERRORES: "Finalizado con errores",
+        ERROR: "Error"
+      };
+
+      return oLabels[sStatus] || sStatus || "Consultando";
+    },
+
+    _jobValueState: function (sStatus) {
+      if (sStatus === "FINALIZADO") {
+        return "Success";
+      }
+
+      if (sStatus === "FINALIZADO_CON_ERRORES") {
+        return "Warning";
+      }
+
+      if (sStatus === "ERROR") {
+        return "Error";
+      }
+
+      return "Information";
+    },
+
     _buildJobMessage: function (oJob) {
       const sStatus = oJob.status || "";
       const sStartedAt = this._formatDateTime(oJob.startedAt);
@@ -521,7 +615,7 @@ sap.ui.define([
       if (sStatus === "EN_PROCESO") {
         return {
           type: "Information",
-          text: "Job en proceso. Inicio: " + sStartedAt
+          text: (sMessage || "Job en proceso.") + " Inicio: " + sStartedAt
         };
       }
 
