@@ -1,0 +1,80 @@
+<mvc:View
+  controllerName="padrones.taxupload.controller.App"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  xmlns:unified="sap.ui.unified">
+  <Page class="appShell" showHeader="false">
+    <VBox>
+      <VBox class="uploadBand sapUiResponsiveContentPadding">
+        <VBox class="uploadInner" renderType="Bare">
+          <Toolbar design="Transparent">
+            <Title text="Resolución 364 AGIP - CABA - Percepciones" level="H1"/>
+            <ToolbarSpacer/>
+            <Button icon="sap-icon://refresh" tooltip="Limpiar carga" press=".onClear"/>
+          </Toolbar>
+
+          <MessageStrip
+            text="Subi el archivo ARDJU mensual. La app usara solo fecha de vigencia desde, fecha de vigencia hasta, numero de CUIT y alicuota de percepcion."
+            type="Information"
+            showIcon="true"
+            class="sapUiTinyMarginTop sapUiSmallMarginBottom"/>
+
+          <HBox wrap="Wrap" alignItems="End" class="sapUiSmallMarginBottom">
+            <VBox class="sapUiSmallMarginEnd sapUiTinyMarginBottom">
+              <Label text="Archivo TXT"/>
+              <unified:FileUploader
+                id="fileUploader"
+                width="24rem"
+                sameFilenameAllowed="true"
+                fileType="txt,csv"
+                change=".onFileChange"
+                placeholder="Seleccionar archivo de padron"/>
+            </VBox>
+            <Button
+              text="Preparar carga"
+              icon="sap-icon://upload-to-cloud"
+              type="Emphasized"
+              enabled="{= ${app>/validRows} > 0 }"
+              press=".onPrepareUpload"
+              class="sapUiTinyMarginBottom"/>
+          </HBox>
+
+          <HBox class="summaryGrid sapUiSmallMarginBottom" renderType="Bare">
+            <VBox class="summaryTile">
+              <Text text="{app>/totalRows}" class="summaryValue"/>
+              <Text text="Lineas leidas" class="summaryLabel"/>
+            </VBox>
+            <VBox class="summaryTile">
+              <Text text="{app>/validRows}" class="summaryValue"/>
+              <Text text="Registros validos" class="summaryLabel"/>
+            </VBox>
+            <VBox class="summaryTile">
+              <Text text="{app>/warningRows}" class="summaryValue"/>
+              <Text text="Advertencias" class="summaryLabel"/>
+            </VBox>
+            <VBox class="summaryTile">
+              <Text text="{app>/errorRows}" class="summaryValue"/>
+              <Text text="Errores" class="summaryLabel"/>
+            </VBox>
+          </HBox>
+        </VBox>
+      </VBox>
+
+      <IconTabBar class="contentInner sapUiResponsiveContentPadding" expandable="false">
+        <items>
+          <IconTabFilter text="Log" icon="sap-icon://message-popup">
+            <List items="{app>/messages}" noDataText="Sin mensajes.">
+              <CustomListItem>
+                <MessageStrip
+                  text="{app>text}"
+                  type="{app>type}"
+                  showIcon="true"
+                  class="sapUiTinyMargin"/>
+              </CustomListItem>
+            </List>
+          </IconTabFilter>
+        </items>
+      </IconTabBar>
+    </VBox>
+  </Page>
+</mvc:View>

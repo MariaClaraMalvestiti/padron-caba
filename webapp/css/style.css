@@ -1,0 +1,48 @@
+.appShell {
+  min-height: 100vh;
+  background: var(--sapBackgroundColor);
+}
+
+.uploadBand {
+  border-bottom: 1px solid var(--sapGroup_TitleBorderColor);
+}
+
+.uploadInner {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.summaryTile {
+  border: 1px solid var(--sapList_BorderColor);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  background: var(--sapList_Background);
+}
+
+.summaryValue {
+  font-size: 1.625rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.summaryLabel {
+  color: var(--sapContent_LabelColor);
+  font-size: 0.8125rem;
+}
+
+.contentInner {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+@media (max-width: 700px) {
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

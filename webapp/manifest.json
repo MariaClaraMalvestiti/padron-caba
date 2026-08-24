@@ -1,0 +1,54 @@
+{
+  "_version": "1.59.0",
+  "sap.app": {
+    "id": "padrones.taxupload",
+    "type": "application",
+    "title": "Carga de Padrones",
+    "description": "Carga mensual de padrones TXT para condition records de percepciones.",
+    "applicationVersion": {
+      "version": "0.1.2"
+    },
+    "sourceTemplate": {
+      "id": "@sap/ux-app-migrator:freestyle",
+      "version": "1.20.1",
+      "toolsId": "c06774bb-dd56-43e3-a358-30a3f6578edf"
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.unified": {},
+        "sap.ui.layout": {}
+      }
+    },
+    "models": {
+      "app": {
+        "type": "sap.ui.model.json.JSONModel"
+      }
+    },
+    "rootView": {
+      "viewName": "padrones.taxupload.view.App",
+      "type": "XML",
+      "async": true,
+      "id": "App"
+    },
+    "resources": {
+      "css": [
+        {
+          "uri": "css/style.css"
+        }
+      ]
+    },
+    "flexBundle": false
+  }
+}
