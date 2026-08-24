@@ -18,6 +18,7 @@
  */
 
 const { callDestination, readJsonResponse, fetchCsrfToken } = require("./destination");
+const { buildS4JoblogSchema } = require("./s4-joblog-schema");
 
 const DESTINATION_NAME = process.env.S4_JOBLOG_DESTINATION || "S4HANA-BP";
 const SERVICE_PATH = (process.env.S4_JOBLOG_SERVICE_PATH || "/sap/opu/odata/sap/ZFI_PADRON_CABA_SRV").replace(/\/$/, "");
@@ -31,22 +32,10 @@ const MAX_RETRIES = (function () {
 })();
 const RETRY_BASE_DELAY_MS = 500;
 
-// nombre interno (server.js) -> alias del servicio Z (CDS en espanol)
-const S4_FIELD_NAMES = {
-  fileName: "archivo",
-  status: "estado",
-  startedAt: "iniciadoEn",
-  finishedAt: "finalizadoEn",
-  totalRows: "filasTotales",
-  validRows: "filasValidas",
-  createdCount: "creadas",
-  updatedCount: "actualizadas",
-  errorCount: "errores",
-  message: "mensaje",
-  createdBy: "creadoPor"
-};
-
-const JOB_FIELDS = Object.keys(S4_FIELD_NAMES);
+const JOB_FIELDS = [
+  "fileName", "status", "startedAt", "finishedAt", "totalRows", "validRows",
+  "createdCount", "updatedCount", "errorCount", "message", "createdBy"
+];
 const JOB_DATE_FIELDS = ["startedAt", "finishedAt"];
 const JOB_COUNTER_FIELDS = ["totalRows", "validRows", "createdCount", "updatedCount", "errorCount"];
 const JOB_FIELD_MAXLEN = {
@@ -108,11 +97,15 @@ function mapJobFieldToS4(sField, v) {
 }
 
 // Mapeo COMPLETO: solo para createJob, donde el caller manda todos los campos.
-function mapJobToS4(oJob) {
-  const oOut = { ID: oJob.ID };
+function mapJobToS4(oJob, oSchema) {
+  const oOut = {};
+  oOut[oSchema.jobs.key.name] = oJob.ID;
 
   JOB_FIELDS.forEach(function (sField) {
-    oOut[S4_FIELD_NAMES[sField]] = mapJobFieldToS4(sField, oJob[sField]);
+    const oProperty = oSchema.jobs.fields[sField];
+    if (oProperty) {
+      oOut[oProperty.name] = mapJobFieldToS4(sField, oJob[sField]);
+    }
   });
 
   return oOut;
@@ -121,7 +114,7 @@ function mapJobToS4(oJob) {
 // Mapeo PARCIAL: para updateJob. NO rellena campos ausentes con defaults,
 // asi un PATCH de solo {message} no pisa contadores/fechas ya guardados
 // (leccion aprendida del store de embargo).
-function buildJobPatchPayload(oPatch) {
+function buildJobPatchPayload(oPatch, oSchema) {
   const oOut = {};
 
   JOB_FIELDS.forEach(function (sField) {
@@ -129,52 +122,72 @@ function buildJobPatchPayload(oPatch) {
       return;
     }
 
-    oOut[S4_FIELD_NAMES[sField]] = mapJobFieldToS4(sField, oPatch[sField]);
+    const oProperty = oSchema.jobs.fields[sField];
+    if (oProperty) {
+      oOut[oProperty.name] = mapJobFieldToS4(sField, oPatch[sField]);
+    }
   });
 
   return oOut;
 }
 
-function normalizeJobFromS4(o) {
+function fieldValue(o, oProperty, vDefault) {
+  return oProperty && Object.prototype.hasOwnProperty.call(o, oProperty.name)
+    ? o[oProperty.name]
+    : vDefault;
+}
+
+function normalizeJobFromS4(o, oSchema) {
   if (!o) {
     return null;
   }
 
   return {
-    ID: o.ID,
-    fileName: o.archivo || null,
-    status: o.estado,
-    startedAt: fromS4Date(o.iniciadoEn),
-    finishedAt: fromS4Date(o.finalizadoEn),
-    totalRows: o.filasTotales || 0,
-    validRows: o.filasValidas || 0,
-    createdCount: o.creadas || 0,
-    updatedCount: o.actualizadas || 0,
-    errorCount: o.errores || 0,
-    message: o.mensaje || null,
-    createdBy: o.creadoPor || null
+    ID: o[oSchema.jobs.key.name],
+    fileName: fieldValue(o, oSchema.jobs.fields.fileName, null),
+    status: fieldValue(o, oSchema.jobs.fields.status, ""),
+    startedAt: fromS4Date(fieldValue(o, oSchema.jobs.fields.startedAt, null)),
+    finishedAt: fromS4Date(fieldValue(o, oSchema.jobs.fields.finishedAt, null)),
+    totalRows: fieldValue(o, oSchema.jobs.fields.totalRows, 0) || 0,
+    validRows: fieldValue(o, oSchema.jobs.fields.validRows, 0) || 0,
+    createdCount: fieldValue(o, oSchema.jobs.fields.createdCount, 0) || 0,
+    updatedCount: fieldValue(o, oSchema.jobs.fields.updatedCount, 0) || 0,
+    errorCount: fieldValue(o, oSchema.jobs.fields.errorCount, 0) || 0,
+    message: fieldValue(o, oSchema.jobs.fields.message, null),
+    createdBy: fieldValue(o, oSchema.jobs.fields.createdBy, null)
   };
 }
 
-function mapLogToS4(oEntry) {
-  return {
-    ID: oEntry.ID,
-    job_ID: oEntry.job_ID,
-    numeroLinea: Number(oEntry.numeroLinea) || 0,
-    cuit: truncStr(oEntry.cuit || "", LOG_FIELD_MAXLEN.cuit),
-    cliente: truncStr(oEntry.cliente || "", LOG_FIELD_MAXLEN.cliente),
-    razonSocial: truncStr(oEntry.razonSocial || "", LOG_FIELD_MAXLEN.razonSocial),
-    accion: truncStr(oEntry.accion || "", LOG_FIELD_MAXLEN.accion),
-    resultado: truncStr(oEntry.resultado || "", LOG_FIELD_MAXLEN.resultado),
-    mensaje: truncStr(oEntry.mensaje || "", LOG_FIELD_MAXLEN.mensaje),
-    timestamp: toS4Date(oEntry.timestamp)
-  };
+function setLogField(oOut, oSchema, sField, vValue) {
+  const oProperty = oSchema.logs && oSchema.logs.fields[sField];
+  if (oProperty) {
+    oOut[oProperty.name] = vValue;
+  }
 }
 
-function keyPredicate(sId) {
+function mapLogToS4(oEntry, oSchema) {
+  if (!oSchema.logs || !oSchema.logs.key) {
+    throw new Error("El servicio OData no expone " + LOGS_ENTITY_SET + ".");
+  }
+
+  const oOut = {};
+  oOut[oSchema.logs.key.name] = oEntry.ID;
+  setLogField(oOut, oSchema, "jobId", oEntry.job_ID);
+  setLogField(oOut, oSchema, "lineNumber", Number(oEntry.numeroLinea) || 0);
+  setLogField(oOut, oSchema, "cuit", truncStr(oEntry.cuit || "", LOG_FIELD_MAXLEN.cuit));
+  setLogField(oOut, oSchema, "customer", truncStr(oEntry.cliente || "", LOG_FIELD_MAXLEN.cliente));
+  setLogField(oOut, oSchema, "businessName", truncStr(oEntry.razonSocial || "", LOG_FIELD_MAXLEN.razonSocial));
+  setLogField(oOut, oSchema, "action", truncStr(oEntry.accion || "", LOG_FIELD_MAXLEN.accion));
+  setLogField(oOut, oSchema, "result", truncStr(oEntry.resultado || "", LOG_FIELD_MAXLEN.resultado));
+  setLogField(oOut, oSchema, "message", truncStr(oEntry.mensaje || "", LOG_FIELD_MAXLEN.mensaje));
+  setLogField(oOut, oSchema, "timestamp", toS4Date(oEntry.timestamp));
+  return oOut;
+}
+
+function keyPredicate(sId, oKey) {
   const sEscaped = String(sId || "").replace(/'/g, "''");
 
-  if (ID_KEY_TYPE === "guid") {
+  if (ID_KEY_TYPE === "guid" && (!oKey || oKey.type === "Edm.Guid")) {
     return "(guid'" + sEscaped + "')";
   }
 
@@ -269,13 +282,37 @@ async function writeRequest(sMethod, sPath, oPayload, sErrorContext) {
 // ID -> ID real de S/4 para updates/lecturas del mismo proceso. (El servicio
 // Z usa numbering externo, asi que en la practica no deberia activarse.)
 const ID_ALIASES = new Map();
+let schemaPromise = null;
+
+async function getSchema() {
+  if (!schemaPromise) {
+    schemaPromise = (async function () {
+      const oResponse = await callDestination(DESTINATION_NAME, SERVICE_PATH + "/$metadata", {
+        headers: { "Accept": "application/xml" }
+      });
+      const sMetadata = await oResponse.text();
+
+      if (!oResponse.ok) {
+        throw new Error("No se pudo leer $metadata del servicio de jobs (HTTP " + oResponse.status + "): " + sMetadata);
+      }
+
+      return buildS4JoblogSchema(sMetadata, JOBS_ENTITY_SET, LOGS_ENTITY_SET);
+    })().catch(function (oError) {
+      schemaPromise = null;
+      throw oError;
+    });
+  }
+
+  return schemaPromise;
+}
 
 function resolveId(sId) {
   return ID_ALIASES.get(sId) || sId;
 }
 
 async function createJob(oJob) {
-  const data = await writeRequest("POST", jobsPath(), mapJobToS4(oJob), "al crear job en S/4");
+  const oSchema = await getSchema();
+  const data = await writeRequest("POST", jobsPath(), mapJobToS4(oJob, oSchema), "al crear job en S/4");
   const created = data && data.d ? data.d : null;
 
   if (created && created.ID && String(created.ID).toLowerCase() !== String(oJob.ID).toLowerCase()) {
@@ -287,17 +324,19 @@ async function createJob(oJob) {
 }
 
 async function updateJob(sId, oPatch) {
-  const oPayload = buildJobPatchPayload(oPatch);
+  const oSchema = await getSchema();
+  const oPayload = buildJobPatchPayload(oPatch, oSchema);
 
   if (!Object.keys(oPayload).length) {
     return;
   }
 
-  await writeRequest("PATCH", jobsPath() + keyPredicate(resolveId(sId)), oPayload, "al actualizar job " + sId + " en S/4");
+  await writeRequest("PATCH", jobsPath() + keyPredicate(resolveId(sId), oSchema.jobs.key), oPayload, "al actualizar job " + sId + " en S/4");
 }
 
 async function getJobById(sId) {
-  const response = await callDestination(DESTINATION_NAME, jobsPath() + keyPredicate(resolveId(sId)) + "?$format=json", {
+  const oSchema = await getSchema();
+  const response = await callDestination(DESTINATION_NAME, jobsPath() + keyPredicate(resolveId(sId), oSchema.jobs.key) + "?$format=json", {
     headers: { "Accept": "application/json" }
   });
 
@@ -306,12 +345,14 @@ async function getJobById(sId) {
   }
 
   const data = await readJsonResponse(response, "al consultar job " + sId + " en S/4");
-  return normalizeJobFromS4(data && data.d ? data.d : null);
+  return normalizeJobFromS4(data && data.d ? data.d : null, oSchema);
 }
 
 async function listJobs(nTop) {
+  const oSchema = await getSchema();
+  const oOrderProperty = oSchema.jobs.fields.startedAt || oSchema.jobs.key;
   const sPath = jobsPath() +
-    "?$orderby=" + encodeURIComponent("iniciadoEn desc") +
+    "?$orderby=" + encodeURIComponent(oOrderProperty.name + " desc") +
     "&$top=" + (Number(nTop) || 20) +
     "&$format=json";
 
@@ -322,15 +363,23 @@ async function listJobs(nTop) {
   const data = await readJsonResponse(response, "al listar jobs en S/4");
   const results = data && data.d && data.d.results ? data.d.results : [];
 
-  return results.map(normalizeJobFromS4);
+  return results.map(function (oJob) {
+    return normalizeJobFromS4(oJob, oSchema);
+  });
 }
 
 async function getLogEntriesByJobId(sJobId) {
+  const oSchema = await getSchema();
+  if (!oSchema.logs || !oSchema.logs.fields.jobId) {
+    throw new Error("El servicio OData no expone la relación de " + LOGS_ENTITY_SET + " con el job.");
+  }
   const sId = String(resolveId(sJobId)).replace(/'/g, "''");
-  const sFilter = ID_KEY_TYPE === "guid" ? "job_ID eq guid'" + sId + "'" : "job_ID eq '" + sId + "'";
+  const oJobIdProperty = oSchema.logs.fields.jobId;
+  const sFilter = oJobIdProperty.name + (oJobIdProperty.type === "Edm.Guid" ? " eq guid'" : " eq '") + sId + "'";
+  const oLineProperty = oSchema.logs.fields.lineNumber || oSchema.logs.key;
   const sPath = logsPath() +
     "?$filter=" + encodeURIComponent(sFilter) +
-    "&$orderby=" + encodeURIComponent("numeroLinea asc") +
+    "&$orderby=" + encodeURIComponent(oLineProperty.name + " asc") +
     "&$format=json";
 
   const response = await callDestination(DESTINATION_NAME, sPath, {
@@ -342,23 +391,24 @@ async function getLogEntriesByJobId(sJobId) {
 
   return results.map(function (o) {
     return {
-      numeroLinea: o.numeroLinea || 0,
-      cuit: o.cuit || "",
-      cliente: o.cliente || "",
-      razonSocial: o.razonSocial || "",
-      accion: o.accion || "",
-      resultado: o.resultado || "",
-      mensaje: o.mensaje || "",
-      timestamp: fromS4Date(o.timestamp)
+      numeroLinea: fieldValue(o, oSchema.logs.fields.lineNumber, 0) || 0,
+      cuit: fieldValue(o, oSchema.logs.fields.cuit, "") || "",
+      cliente: fieldValue(o, oSchema.logs.fields.customer, "") || "",
+      razonSocial: fieldValue(o, oSchema.logs.fields.businessName, "") || "",
+      accion: fieldValue(o, oSchema.logs.fields.action, "") || "",
+      resultado: fieldValue(o, oSchema.logs.fields.result, "") || "",
+      mensaje: fieldValue(o, oSchema.logs.fields.message, "") || "",
+      timestamp: fromS4Date(fieldValue(o, oSchema.logs.fields.timestamp, null))
     };
   });
 }
 
 async function createLogEntry(oEntry) {
-  const oPayload = mapLogToS4(oEntry);
+  const oSchema = await getSchema();
+  const oPayload = mapLogToS4(oEntry, oSchema);
 
   if (ID_ALIASES.has(oEntry.job_ID)) {
-    oPayload.job_ID = ID_ALIASES.get(oEntry.job_ID);
+    setLogField(oPayload, oSchema, "jobId", ID_ALIASES.get(oEntry.job_ID));
   }
 
   await writeRequest("POST", logsPath(), oPayload, "al crear log entry en S/4");
@@ -372,6 +422,8 @@ async function ping() {
   if (!response.ok) {
     throw new Error("Servicio Z de jobs no disponible (HTTP " + response.status + "): " + await response.text());
   }
+
+  await getSchema();
 
   return { store: "s4", servicePath: SERVICE_PATH };
 }

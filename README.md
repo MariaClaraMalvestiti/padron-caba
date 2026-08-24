@@ -26,6 +26,9 @@ La API admite destinos por ambiente mediante `S4_BUSINESS_PARTNER_DESTINATION`,
 destino de S/4 Test `S4HANA-BP-I0A`; esto no cambia la configuracion de DEV.
 El job log TEST utiliza el servicio publicado por el escenario `ZCS_PADRON_JOBLOG`:
 `/sap/opu/odata/sap/ZFI_PADRON_JOBLOG_SRV`.
+La API lee `$metadata` al iniciar el store de jobs y resuelve los nombres reales
+de las propiedades OData. Esto mantiene compatibilidad con servicios que exponen
+campos como `iniciadoEn` o `IniciadoEn` sin cambiar la logica funcional.
 
 ## Despliegue TEST
 
