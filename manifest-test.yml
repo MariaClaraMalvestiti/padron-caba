@@ -1,0 +1,40 @@
+---
+applications:
+  - name: padrones-tax-upload-api-telefe-test
+    path: api
+    memory: 512M
+    disk-quota: 1G
+    buildpacks:
+      - nodejs_buildpack
+    command: npm start
+    routes:
+      - route: padrones-tax-upload-api-telefe-test.cfapps.us10-001.hana.ondemand.com
+    services:
+      - padrones-tax-upload-destination-telefe-test
+    env:
+      JOBLOG_STORE: s4
+      S4_JOBLOG_DESTINATION: S4HANA-BP-I0A
+      S4_JOBLOG_SERVICE_PATH: /sap/opu/odata/sap/ZFI_PADRON_CABA_SRV
+      S4_BUSINESS_PARTNER_DESTINATION: S4HANA-BP-I0A
+      S4_PRICING_DESTINATION: S4HANA-BP-I0A
+      PRICING_CONDITION_TABLE: "905"
+      PRICING_CONDITION_TYPE: Z901
+      PRICING_COUNTRY: AR
+      PRICING_COMPANY_CODE: "2384"
+      PRICING_CUSTOM_COMPANY_FIELD: YY1_COMPANYCODE_PCH
+
+  - name: padrones-tax-upload-approuter-telefe-test
+    path: test-approuter
+    memory: 256M
+    disk-quota: 512M
+    buildpacks:
+      - nodejs_buildpack
+    command: npm start
+    routes:
+      - route: padrones-tax-upload-approuter-telefe-test.cfapps.us10-001.hana.ondemand.com
+    services:
+      - padrones-tax-upload-xsuaa-telefe-test
+      - padrones-tax-upload-html5-repo-runtime-telefe-test
+    env:
+      destinations: >-
+        [{"name":"padrones-tax-upload-api-test","url":"https://padrones-tax-upload-api-telefe-test.cfapps.us10-001.hana.ondemand.com","forwardAuthToken":true}]

@@ -1,5 +1,5 @@
 const express = require("express");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("node:crypto");
 
 const { callDestination, readJsonResponse, fetchCsrfToken } = require("./lib/destination");
 const jobStore = require("./lib/joblog-store");
@@ -19,6 +19,11 @@ const PRICING_CONFIG = {
   taxCode: process.env.PRICING_TAX_CODE || "SD"
 };
 
+const BUSINESS_PARTNER_DESTINATION =
+  process.env.S4_BUSINESS_PARTNER_DESTINATION || "S4HANA-BP";
+const PRICING_DESTINATION =
+  process.env.S4_PRICING_DESTINATION || "S4HANA-PRICING";
+
 const BP_TAX_CONFIG = {
   customerTaxGroupingCode: "IB1",
   subjectedEndDate: "9999-12-31T00:00:00"
@@ -29,11 +34,11 @@ const JOB_PROGRESS_UPDATE_EVERY = 1;
 app.use(express.json({ limit: "10mb" }));
 
 function fetchPricingCsrfToken() {
-  return fetchCsrfToken("S4HANA-PRICING", "/sap/opu/odata/sap/API_SLSPRICINGCONDITIONRECORD_SRV/");
+  return fetchCsrfToken(PRICING_DESTINATION, "/sap/opu/odata/sap/API_SLSPRICINGCONDITIONRECORD_SRV/");
 }
 
 function fetchBpCsrfToken() {
-  return fetchCsrfToken("S4HANA-BP", "/sap/opu/odata/sap/API_BUSINESS_PARTNER/");
+  return fetchCsrfToken(BUSINESS_PARTNER_DESTINATION, "/sap/opu/odata/sap/API_BUSINESS_PARTNER/");
 }
 
 function escapeODataKey(value) {
@@ -85,7 +90,7 @@ function isCustomerTaxGroupingAlreadyExistsError(errorText) {
 async function updateCustomerTaxGrouping(row, bpCsrfToken) {
   const payload = getCustomerTaxGroupingPayload(row);
 
-  const response = await callDestination("S4HANA-BP", getCustomerTaxGroupingKeyPath(row.customer), {
+  const response = await callDestination(BUSINESS_PARTNER_DESTINATION, getCustomerTaxGroupingKeyPath(row.customer), {
     method: "PATCH",
     headers: {
       "Accept": "application/json",
@@ -110,7 +115,7 @@ async function createCustomerTaxGrouping(row, bpCsrfToken) {
     getCustomerTaxGroupingPayload(row)
   );
 
-  const createResponse = await callDestination("S4HANA-BP", getCustomerTaxGroupingNavigationPath(row.customer), {
+  const createResponse = await callDestination(BUSINESS_PARTNER_DESTINATION, getCustomerTaxGroupingNavigationPath(row.customer), {
     method: "POST",
     headers: {
       "Accept": "application/json",
@@ -142,7 +147,7 @@ async function ensureCustomerTaxGrouping(row, bpCsrfToken) {
 
   const keyPath = getCustomerTaxGroupingKeyPath(customer) + "?$format=json";
 
-  const readResponse = await callDestination("S4HANA-BP", keyPath, {
+  const readResponse = await callDestination(BUSINESS_PARTNER_DESTINATION, keyPath, {
     headers: {
       "Accept": "application/json"
     }
@@ -186,7 +191,7 @@ async function findPricingCondition(row) {
     "&$filter=" + encodeURIComponent(filter) +
     "&$format=json";
 
-  const response = await callDestination("S4HANA-PRICING", path, {
+  const response = await callDestination(PRICING_DESTINATION, path, {
     headers: { "Accept": "application/json" }
   });
   const data = await readJsonResponse(response, "al buscar condición Z901 por sociedad");
@@ -200,7 +205,7 @@ async function readPricingConditionRecord(conditionRecord) {
     encodeURIComponent(conditionRecord) +
     "')?$format=json";
 
-  const response = await callDestination("S4HANA-PRICING", path, {
+  const response = await callDestination(PRICING_DESTINATION, path, {
     headers: { "Accept": "application/json" }
   });
   const data = await readJsonResponse(response, "al leer ETag de condicion");
@@ -241,7 +246,7 @@ async function createPricingCondition(row, csrfToken) {
     to_SlsPrcgCndnRecdValidity: [validity]
   };
 
-  const response = await callDestination("S4HANA-PRICING", "/sap/opu/odata/sap/API_SLSPRICINGCONDITIONRECORD_SRV/A_SlsPrcgConditionRecord", {
+  const response = await callDestination(PRICING_DESTINATION, "/sap/opu/odata/sap/API_SLSPRICINGCONDITIONRECORD_SRV/A_SlsPrcgConditionRecord", {
     method: "POST",
     headers: {
       "Accept": "application/json",
@@ -269,7 +274,7 @@ async function updatePricingCondition(conditionRecord, row, csrfToken) {
     encodeURIComponent(conditionRecord) +
     "')";
 
-  const response = await callDestination("S4HANA-PRICING", path, {
+  const response = await callDestination(PRICING_DESTINATION, path, {
     method: "PATCH",
     headers: {
       "Accept": "application/json",
@@ -350,7 +355,7 @@ async function safeCreateLogEntry(jobId, entry) {
   try {
     await jobStore.createLogEntry(Object.assign(
       {
-        ID: uuidv4(),
+        ID: randomUUID(),
         job_ID: jobId,
         timestamp: new Date().toISOString()
       },
@@ -512,7 +517,7 @@ app.get("/api/company-codes", async function (req, res, next) {
       "sap/zsd_pa_companycode/0001/CompanyCodes" +
       "?$select=CompanyCode,CompanyCodeName&$orderby=CompanyCode";
 
-    const response = await callDestination("S4HANA-BP", path, {
+    const response = await callDestination(BUSINESS_PARTNER_DESTINATION, path, {
       method: "GET",
       headers: {
         "Accept": "application/json"
@@ -555,6 +560,10 @@ app.get("/api/health", async function (req, res) {
         country: PRICING_CONFIG.country,
         companyCode: PRICING_CONFIG.companyCode,
         customCompanyCodeField: PRICING_CONFIG.customCompanyCodeField
+      },
+      destinations: {
+        businessPartner: BUSINESS_PARTNER_DESTINATION,
+        pricing: PRICING_DESTINATION
       }
     });
   } catch (error) {
@@ -567,7 +576,7 @@ app.get("/api/health", async function (req, res) {
 });
 
 app.post("/api/jobs", async function (req, res) {
-  const id = uuidv4();
+  const id = randomUUID();
   const startedAt = new Date();
   const fileName = req.body.fileName || "";
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];

@@ -1,0 +1,20 @@
+{
+  "xsappname": "padrones-tax-upload-telefe-test",
+  "tenant-mode": "dedicated",
+  "description": "Autenticación para Padrón CABA en TEST",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.User",
+      "description": "Acceso a Padrón CABA TEST"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "User",
+      "description": "Acceso a Padrón CABA TEST",
+      "scope-references": [
+        "$XSAPPNAME.User"
+      ]
+    }
+  ]
+}

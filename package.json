@@ -6,10 +6,9 @@
   "scripts": {
     "start": "ui5 serve --open index.html",
     "build": "ui5 build --clean-dest",
-    "test": "node tests/ui-state.unit.js"
+    "test": "node tests/ui-state.unit.js && node tests/test-deployment.unit.js"
   },
   "devDependencies": {
     "@ui5/cli": "^3.11.6"
   }
 }
-

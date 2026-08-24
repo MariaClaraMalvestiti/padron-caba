@@ -9,8 +9,7 @@
   "dependencies": {
     "@sap/xsenv": "^6.2.1",
     "express": "^5.2.1",
-    "multer": "^2.1.1",
-    "uuid": "^14.0.0"
+    "multer": "^2.1.1"
   },
   "engines": {
     "node": "22.x"
