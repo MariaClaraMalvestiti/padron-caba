@@ -24,6 +24,8 @@ La logica funcional y los endpoints del backend no se modifican con estos cambio
 La API admite destinos por ambiente mediante `S4_BUSINESS_PARTNER_DESTINATION`,
 `S4_PRICING_DESTINATION` y `S4_JOBLOG_DESTINATION`. En TEST los tres apuntan al
 destino de S/4 Test `S4HANA-BP-I0A`; esto no cambia la configuracion de DEV.
+El job log TEST utiliza el servicio publicado por el escenario `ZCS_PADRON_JOBLOG`:
+`/sap/opu/odata/sap/ZFI_PADRON_JOBLOG_SRV`.
 
 ## Despliegue TEST
 

@@ -18,6 +18,8 @@ assert.match(server, /S4_BUSINESS_PARTNER_DESTINATION/);
 assert.match(server, /S4_PRICING_DESTINATION/);
 assert.match(manifest, /space|TEST|telefe-test/i);
 assert.match(manifest, /S4HANA-BP-I0A/);
+assert.match(manifest, /S4_JOBLOG_SERVICE_PATH:\s*\/sap\/opu\/odata\/sap\/ZFI_PADRON_JOBLOG_SRV/);
+assert.doesNotMatch(manifest, /ZFI_PADRON_CABA_SRV/);
 assert.doesNotMatch(manifest, /S4HANA-BP(?:\s|$)/m);
 assert.doesNotMatch(manifest, /S4HANA-PRICING(?:\s|$)/m);
 
