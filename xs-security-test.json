@@ -2,6 +2,11 @@
   "xsappname": "padrones-tax-upload-telefe-test",
   "tenant-mode": "dedicated",
   "description": "Autenticación para Padrón CABA en TEST",
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://padrones-tax-upload-approuter-telefe-test.cfapps.us10-001.hana.ondemand.com/**"
+    ]
+  },
   "scopes": [
     {
       "name": "$XSAPPNAME.User",
