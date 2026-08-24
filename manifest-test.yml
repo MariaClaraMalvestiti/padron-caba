@@ -35,6 +35,7 @@ applications:
     services:
       - padrones-tax-upload-xsuaa-telefe-test
       - padrones-tax-upload-html5-repo-runtime-telefe-test
+      - padrones-tax-upload-destination-telefe-test
     env:
       destinations: >-
         [{"name":"padrones-tax-upload-api-test","url":"https://padrones-tax-upload-api-telefe-test.cfapps.us10-001.hana.ondemand.com","forwardAuthToken":true}]

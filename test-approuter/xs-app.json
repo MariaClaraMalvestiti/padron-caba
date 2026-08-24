@@ -10,6 +10,20 @@
       "csrfProtection": false
     },
     {
+      "source": "^/pricing/(.*)$",
+      "target": "/$1",
+      "destination": "S4HANA-BP-I0A",
+      "authenticationType": "xsuaa",
+      "csrfProtection": false
+    },
+    {
+      "source": "^/s4/(.*)$",
+      "target": "/$1",
+      "destination": "S4HANA-BP-I0A",
+      "authenticationType": "xsuaa",
+      "csrfProtection": false
+    },
+    {
       "source": "^/(.*)$",
       "target": "padronestaxupload/$1",
       "service": "html5-apps-repo-rt",

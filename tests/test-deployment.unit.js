@@ -26,7 +26,18 @@ assert.doesNotMatch(manifest, /S4HANA-PRICING(?:\s|$)/m);
 const destinations = xsApp.routes
   .map(function (route) { return route.destination; })
   .filter(Boolean);
-assert.deepStrictEqual(destinations, ["padrones-tax-upload-api-test"]);
+assert.deepStrictEqual(destinations, [
+  "padrones-tax-upload-api-test",
+  "S4HANA-BP-I0A",
+  "S4HANA-BP-I0A"
+]);
+assert.ok(xsApp.routes.some(function (route) {
+  return route.source === "^/s4/(.*)$" && route.destination === "S4HANA-BP-I0A";
+}));
+assert.ok(xsApp.routes.some(function (route) {
+  return route.source === "^/pricing/(.*)$" && route.destination === "S4HANA-BP-I0A";
+}));
+assert.match(manifest, /padrones-tax-upload-destination-telefe-test/);
 assert.ok(xsApp.routes.some(function (route) {
   return route.service === "html5-apps-repo-rt";
 }));
