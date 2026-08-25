@@ -22,6 +22,7 @@ const { buildS4JoblogSchema } = require("./s4-joblog-schema");
 const {
   SUMMARY_ACTION,
   normalizeCuitForS4,
+  normalizeLogActionForS4,
   toPersistedStatus,
   fromPersistedStatus,
   encodeJobSummary,
@@ -59,7 +60,7 @@ const LOG_FIELD_MAXLEN = {
   cuit: 11,
   cliente: 10,
   razonSocial: 100,
-  accion: 30,
+  accion: 10,
   resultado: 10,
   mensaje: 500
 };
@@ -187,7 +188,7 @@ function mapLogToS4(oEntry, oSchema) {
   setLogField(oOut, oSchema, "cuit", truncStr(normalizeCuitForS4(oEntry.cuit), LOG_FIELD_MAXLEN.cuit));
   setLogField(oOut, oSchema, "customer", truncStr(oEntry.cliente || "", LOG_FIELD_MAXLEN.cliente));
   setLogField(oOut, oSchema, "businessName", truncStr(oEntry.razonSocial || "", LOG_FIELD_MAXLEN.razonSocial));
-  setLogField(oOut, oSchema, "action", truncStr(oEntry.accion || "", LOG_FIELD_MAXLEN.accion));
+  setLogField(oOut, oSchema, "action", truncStr(normalizeLogActionForS4(oEntry.accion), LOG_FIELD_MAXLEN.accion));
   setLogField(oOut, oSchema, "result", truncStr(oEntry.resultado || "", LOG_FIELD_MAXLEN.resultado));
   setLogField(oOut, oSchema, "message", truncStr(oEntry.mensaje || "", LOG_FIELD_MAXLEN.mensaje));
   setLogField(oOut, oSchema, "timestamp", toS4Date(oEntry.timestamp));

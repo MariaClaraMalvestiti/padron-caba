@@ -1,6 +1,6 @@
 "use strict";
 
-const SUMMARY_ACTION = "RESUMEN_JOB";
+const SUMMARY_ACTION = "RESUMEN";
 const SUMMARY_PREFIX = "JOB_SUMMARY:";
 
 function toNumber(v) {
@@ -10,6 +10,18 @@ function toNumber(v) {
 
 function normalizeCuitForS4(v) {
   return String(v || "").replace(/\D/g, "").slice(0, 11);
+}
+
+function normalizeLogActionForS4(v) {
+  const sAction = String(v || "");
+  const oAliases = {
+    COND_CREADA: "CREADA",
+    COND_ACTUALIZADA: "ACTUALIZA",
+    SIN_CAMBIOS: "SIN_CAMBIO",
+    RESUMEN_JOB: SUMMARY_ACTION
+  };
+
+  return (oAliases[sAction] || sAction).slice(0, 10);
 }
 
 function toPersistedStatus(sStatus) {
@@ -93,6 +105,7 @@ function applyJobSummary(oJob, oEntry) {
 module.exports = {
   SUMMARY_ACTION: SUMMARY_ACTION,
   normalizeCuitForS4: normalizeCuitForS4,
+  normalizeLogActionForS4: normalizeLogActionForS4,
   toPersistedStatus: toPersistedStatus,
   fromPersistedStatus: fromPersistedStatus,
   encodeJobSummary: encodeJobSummary,

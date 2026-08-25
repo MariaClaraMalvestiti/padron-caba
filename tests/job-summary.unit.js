@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   SUMMARY_ACTION,
   normalizeCuitForS4,
+  normalizeLogActionForS4,
   toPersistedStatus,
   fromPersistedStatus,
   encodeJobSummary,
@@ -14,6 +15,10 @@ const {
 
 assert.equal(normalizeCuitForS4("20-00041649-6"), "20000416496");
 assert.equal(normalizeCuitForS4("20.000.43481-8"), "20000434818");
+assert.equal(normalizeLogActionForS4("COND_CREADA"), "CREADA");
+assert.equal(normalizeLogActionForS4("COND_ACTUALIZADA"), "ACTUALIZA");
+assert.equal(normalizeLogActionForS4("SIN_CAMBIOS"), "SIN_CAMBIO");
+assert.equal(normalizeLogActionForS4("RESUMEN_JOB"), "RESUMEN");
 assert.equal(toPersistedStatus("FINALIZADO_CON_ERRORES"), "FIN_ERROR");
 assert.equal(fromPersistedStatus("FIN_ERROR"), "FINALIZADO_CON_ERRORES");
 
