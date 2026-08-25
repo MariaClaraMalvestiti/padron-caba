@@ -471,6 +471,7 @@ async function processJob(jobId, jobData) {
 
     await jobStore.updateJob(jobId, {
       status: failed ? "FINALIZADO_CON_ERRORES" : "FINALIZADO",
+      startedAt: jobData.startedAt || null,
       finishedAt: new Date().toISOString(),
       totalRows: totalRows,
       validRows: validRows.length,
@@ -484,6 +485,7 @@ async function processJob(jobId, jobData) {
 
     await jobStore.updateJob(jobId, {
       status: "ERROR",
+      startedAt: jobData.startedAt || null,
       finishedAt: new Date().toISOString(),
       errorCount: 1,
       message: humanizeError(error)
@@ -622,6 +624,7 @@ app.post("/api/jobs", async function (req, res) {
     processJob(id, {
       totalRows: totalRows,
       companyCode: companyCode,
+      startedAt: startedAt.toISOString(),
       rows: jobRows
     });
   });

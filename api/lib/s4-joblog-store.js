@@ -19,6 +19,15 @@
 
 const { callDestination, readJsonResponse, fetchCsrfToken } = require("./destination");
 const { buildS4JoblogSchema } = require("./s4-joblog-schema");
+const {
+  SUMMARY_ACTION,
+  normalizeCuitForS4,
+  toPersistedStatus,
+  fromPersistedStatus,
+  encodeJobSummary,
+  isSummaryEntry,
+  applyJobSummary
+} = require("./job-summary");
 
 const DESTINATION_NAME = process.env.S4_JOBLOG_DESTINATION || "S4HANA-BP";
 const SERVICE_PATH = (process.env.S4_JOBLOG_SERVICE_PATH || "/sap/opu/odata/sap/ZFI_PADRON_CABA_SRV").replace(/\/$/, "");
@@ -47,7 +56,7 @@ const JOB_FIELD_MAXLEN = {
 
 // Campos del log tal como los expone el servicio Z (ya en espanol).
 const LOG_FIELD_MAXLEN = {
-  cuit: 13,
+  cuit: 11,
   cliente: 10,
   razonSocial: 100,
   accion: 30,
@@ -90,7 +99,8 @@ function mapJobFieldToS4(sField, v) {
   }
 
   if (Object.prototype.hasOwnProperty.call(JOB_FIELD_MAXLEN, sField)) {
-    return truncStr(v, JOB_FIELD_MAXLEN[sField]);
+    const value = sField === "status" ? toPersistedStatus(v) : v;
+    return truncStr(value, JOB_FIELD_MAXLEN[sField]);
   }
 
   return v;
@@ -145,7 +155,7 @@ function normalizeJobFromS4(o, oSchema) {
   return {
     ID: o[oSchema.jobs.key.name],
     fileName: fieldValue(o, oSchema.jobs.fields.fileName, null),
-    status: fieldValue(o, oSchema.jobs.fields.status, ""),
+    status: fromPersistedStatus(fieldValue(o, oSchema.jobs.fields.status, "")),
     startedAt: fromS4Date(fieldValue(o, oSchema.jobs.fields.startedAt, null)),
     finishedAt: fromS4Date(fieldValue(o, oSchema.jobs.fields.finishedAt, null)),
     totalRows: fieldValue(o, oSchema.jobs.fields.totalRows, 0) || 0,
@@ -174,7 +184,7 @@ function mapLogToS4(oEntry, oSchema) {
   oOut[oSchema.logs.key.name] = oEntry.ID;
   setLogField(oOut, oSchema, "jobId", oEntry.job_ID);
   setLogField(oOut, oSchema, "lineNumber", Number(oEntry.numeroLinea) || 0);
-  setLogField(oOut, oSchema, "cuit", truncStr(oEntry.cuit || "", LOG_FIELD_MAXLEN.cuit));
+  setLogField(oOut, oSchema, "cuit", truncStr(normalizeCuitForS4(oEntry.cuit), LOG_FIELD_MAXLEN.cuit));
   setLogField(oOut, oSchema, "customer", truncStr(oEntry.cliente || "", LOG_FIELD_MAXLEN.cliente));
   setLogField(oOut, oSchema, "businessName", truncStr(oEntry.razonSocial || "", LOG_FIELD_MAXLEN.razonSocial));
   setLogField(oOut, oSchema, "action", truncStr(oEntry.accion || "", LOG_FIELD_MAXLEN.accion));
@@ -332,6 +342,25 @@ async function updateJob(sId, oPatch) {
   }
 
   await writeRequest("PATCH", jobsPath() + keyPredicate(resolveId(sId), oSchema.jobs.key), oPayload, "al actualizar job " + sId + " en S/4");
+
+  if (["FINALIZADO", "FINALIZADO_CON_ERRORES", "ERROR"].indexOf(oPatch.status) !== -1) {
+    try {
+      await createLogEntry({
+        ID: require("node:crypto").randomUUID(),
+        job_ID: sId,
+        numeroLinea: 0,
+        cuit: "",
+        cliente: "",
+        razonSocial: "",
+        accion: SUMMARY_ACTION,
+        resultado: oPatch.status === "FINALIZADO" ? "OK" : "ERROR",
+        mensaje: encodeJobSummary(oPatch),
+        timestamp: oPatch.finishedAt || new Date().toISOString()
+      });
+    } catch (oError) {
+      console.error("No se pudo guardar el resumen persistente del job " + sId + ":", oError.message || oError);
+    }
+  }
 }
 
 async function getJobById(sId) {
@@ -345,7 +374,18 @@ async function getJobById(sId) {
   }
 
   const data = await readJsonResponse(response, "al consultar job " + sId + " en S/4");
-  return normalizeJobFromS4(data && data.d ? data.d : null, oSchema);
+  const oJob = normalizeJobFromS4(data && data.d ? data.d : null, oSchema);
+
+  if (!oJob || ["FINALIZADO", "FINALIZADO_CON_ERRORES", "ERROR"].indexOf(oJob.status) === -1) {
+    return oJob;
+  }
+
+  const aEntries = await readAllLogEntriesByJobId(sId, oSchema);
+  const aSummaries = aEntries.filter(isSummaryEntry).sort(function (a, b) {
+    return String(a.timestamp || "").localeCompare(String(b.timestamp || ""));
+  });
+
+  return applyJobSummary(oJob, aSummaries[aSummaries.length - 1]);
 }
 
 async function listJobs(nTop) {
@@ -368,8 +408,8 @@ async function listJobs(nTop) {
   });
 }
 
-async function getLogEntriesByJobId(sJobId) {
-  const oSchema = await getSchema();
+async function readAllLogEntriesByJobId(sJobId, oResolvedSchema) {
+  const oSchema = oResolvedSchema || await getSchema();
   if (!oSchema.logs || !oSchema.logs.fields.jobId) {
     throw new Error("El servicio OData no expone la relación de " + LOGS_ENTITY_SET + " con el job.");
   }
@@ -400,6 +440,13 @@ async function getLogEntriesByJobId(sJobId) {
       mensaje: fieldValue(o, oSchema.logs.fields.message, "") || "",
       timestamp: fromS4Date(fieldValue(o, oSchema.logs.fields.timestamp, null))
     };
+  });
+}
+
+async function getLogEntriesByJobId(sJobId) {
+  const aEntries = await readAllLogEntriesByJobId(sJobId);
+  return aEntries.filter(function (oEntry) {
+    return !isSummaryEntry(oEntry);
   });
 }
 
