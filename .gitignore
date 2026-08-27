@@ -4,3 +4,19 @@ dist/
 .ui5-tooling-modules/
 *.log
 deploy-caba-test-*/
+
+# Nunca publicar credenciales, padrones ni artefactos locales
+.env
+.env.*
+default-*.json
+destination-key*.json
+*service-key*.json
+*.pem
+*.key
+*.txt
+*.TXT
+*.csv
+*.zip
+*.mtar
+*.bak-*
+outputs/

@@ -7,6 +7,8 @@ sap.ui.define([
   "use strict";
 
   const DISPLAY_COMPANY_CODE = "2384";
+  const JOB_POLL_INTERVAL_MS = 5000;
+  const JOB_POLL_TIMEOUT_MS = 30000;
 
   const INITIAL_STATE = {
     fileName: "",
@@ -54,7 +56,7 @@ sap.ui.define([
         this.getView().getModel("app").setProperty("/jobStatusText", "Consultando");
         this.getView().getModel("app").setProperty("/jobMessage", "Consultando estado del ultimo job...");
 
-        this._pollJobStatus(sLastJobId);
+        this._startJobPolling(sLastJobId);
       }
     },
 
@@ -175,6 +177,10 @@ sap.ui.define([
         oModel.getProperty("/companyCode") || ""
       );
 
+      if (oModel.getProperty("/busy")) {
+        return;
+      }
+
       if (!sCompanyCode) {
         MessageBox.warning("Debe seleccionar una sociedad.");
         return;
@@ -225,6 +231,7 @@ sap.ui.define([
     _parseContent: async function () {
       const oModel = this.getView().getModel("app");
       const sContent = oModel.getProperty("/fileContent") || "";
+      const sCompanyCode = String(oModel.getProperty("/companyCode") || "").trim();
       const aRawLines = sContent.split(/\r?\n/).filter(function (sLine) {
         return sLine.trim().length > 0;
       });
@@ -236,9 +243,10 @@ sap.ui.define([
 
       oModel.setProperty("/busy", true);
       oModel.setProperty("/rows", []);
+      oModel.setProperty("/validRows", 0);
       oModel.setProperty("/messages", [{
         type: "Information",
-        text: "Validando archivo y filtrando CUITs contra Business Partner..."
+        text: "Validando CUITs y clientes extendidos a la sociedad " + sCompanyCode + "..."
       }]);
 
       aRawLines.forEach(function (sLine, iIndex) {
@@ -272,7 +280,9 @@ sap.ui.define([
       }
 
       try {
-        const oBpByCuit = await this._loadBusinessPartnerIndex();
+        const oCompanyCustomers = await this._loadCompanyCustomerIndex(sCompanyCode);
+        const oBpByCuit = await this._loadBusinessPartnerIndex(oCompanyCustomers);
+        let iOutsideCompany = 0;
 
         const aValidRowsInClient = aParsedRows.filter(function (oRow) {
           const oBpData = oBpByCuit.get(this._normalizeCuit(oRow.cuit));
@@ -281,24 +291,40 @@ sap.ui.define([
             return false;
           }
 
+          if (!oCompanyCustomers.has(oBpData.customer)) {
+            iOutsideCompany += 1;
+            return false;
+          }
+
           oRow.businessPartner = oBpData.businessPartner;
           oRow.customer = oBpData.customer;
           return true;
         }.bind(this));
 
-        const iRemovedRows = iInitialValidRows - aValidRowsInClient.length;
+        const iRemovedRows = iInitialValidRows - aValidRowsInClient.length - iOutsideCompany;
+
+        if (iOutsideCompany > 0) {
+          aMessages.unshift({
+            type: "Information",
+            text: "Se excluyeron " + iOutsideCompany + " registros: el cliente existe, pero no esta extendido a la sociedad " + sCompanyCode + "."
+          });
+        }
 
         if (iRemovedRows > 0) {
           aMessages.unshift({
             type: "Information",
-            text: "Se eliminaron " + iRemovedRows + " registros porque su CUIT no existe como Business Partner del cliente."
+            text: "Se excluyeron " + iRemovedRows + " registros porque no se encontro un cliente para su CUIT."
           });
         }
 
         aMessages.unshift({
           type: "Information",
-          text: "Archivo filtrado correctamente. Registros listos para procesar: " + aValidRowsInClient.length + "."
+          text: "Archivo filtrado correctamente. Registros listos para procesar: " + aValidRowsInClient.length + ". Sociedad: " + sCompanyCode + "."
         });
+
+        if (sCompanyCode !== String(oModel.getProperty("/companyCode") || "").trim()) {
+          throw new Error("La sociedad cambio durante la validacion. Volve a seleccionar el archivo.");
+        }
 
         oModel.setProperty("/rows", aValidRowsInClient);
         oModel.setProperty("/messages", aMessages);
@@ -310,21 +336,41 @@ sap.ui.define([
         oModel.setProperty("/rows", []);
         oModel.setProperty("/messages", [{
           type: "Error",
-          text: "No se pudieron recuperar los Business Partners desde API_BUSINESS_PARTNER. " + (oError.message || "")
+          text: "No se pudo validar el archivo contra los clientes de la sociedad. " + (oError.message || "")
         }]);
         oModel.setProperty("/totalRows", aRawLines.length);
         oModel.setProperty("/validRows", 0);
         oModel.setProperty("/warningRows", iWarningRows);
         oModel.setProperty("/errorRows", iErrorRows);
 
-        MessageBox.error("No se pudieron recuperar los Business Partners desde API_BUSINESS_PARTNER.");
+        MessageBox.error("No se pudo validar el archivo contra los clientes de la sociedad. " + (oError.message || ""));
       } finally {
         oModel.setProperty("/busy", false);
       }
     },
 
-    _loadBusinessPartnerIndex: async function () {
-      const oBpByCuit = new Map();
+    _loadCompanyCustomerIndex: async function (sCompanyCode) {
+      if (!/^\d{4}$/.test(sCompanyCode)) {
+        throw new Error("Debe seleccionar una sociedad valida antes del archivo.");
+      }
+      const oResponse = await fetch("/api/customer-company-index?companyCode=" + encodeURIComponent(sCompanyCode), {
+        method: "GET",
+        cache: "no-store",
+        headers: { "Accept": "application/json" }
+      });
+      const oData = await oResponse.json();
+      if (!oResponse.ok) {
+        throw new Error(oData.message || "No se pudieron consultar los clientes de la sociedad.");
+      }
+      if (oData.companyCode !== sCompanyCode || !Array.isArray(oData.customers) ||
+          oData.customers.some(function (sCustomer) { return typeof sCustomer !== "string" || !sCustomer.trim(); })) {
+        throw new Error("El indice de clientes por sociedad esta incompleto. No se procesara el archivo.");
+      }
+      return new Set(oData.customers.map(function (sCustomer) { return sCustomer.trim(); }));
+    },
+
+    _loadBusinessPartnerIndex: async function (oCompanyCustomers) {
+      const oCandidatesByCuit = new Map();
       const oCustomerByBp = new Map();
 
       let sTaxUrl = "/s4/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber?$select=BusinessPartner,BPTaxNumber,BPTaxLongNumber&$format=json";
@@ -349,10 +395,11 @@ sap.ui.define([
             const sCuit = this._normalizeCuit(sValue);
 
             if (sCuit.length === 11) {
-              oBpByCuit.set(sCuit, {
-                businessPartner: oItem.BusinessPartner,
-                customer: ""
-              });
+              const aCandidates = oCandidatesByCuit.get(sCuit) || [];
+              if (!aCandidates.includes(oItem.BusinessPartner)) {
+                aCandidates.push(oItem.BusinessPartner);
+              }
+              oCandidatesByCuit.set(sCuit, aCandidates);
             }
           }.bind(this));
         }.bind(this));
@@ -390,8 +437,17 @@ sap.ui.define([
           : "";
       }
 
-      oBpByCuit.forEach(function (oValue) {
-        oValue.customer = oCustomerByBp.get(oValue.businessPartner) || "";
+      const oBpByCuit = new Map();
+      oCandidatesByCuit.forEach(function (aCandidates, sCuit) {
+        let oSelected;
+        aCandidates.forEach(function (sBusinessPartner) {
+          const sCustomer = String(oCustomerByBp.get(sBusinessPartner) || "").trim();
+          // Otro BP con el mismo CUIT, pero de otra sociedad, no debe ocultar al valido.
+          if (!oSelected || (!oSelected.customer && sCustomer) || oCompanyCustomers.has(sCustomer)) {
+            oSelected = { businessPartner: sBusinessPartner, customer: sCustomer };
+          }
+        });
+        oBpByCuit.set(sCuit, oSelected);
       });
 
       return oBpByCuit;
@@ -428,7 +484,8 @@ sap.ui.define([
         });
 
         if (!oResponse.ok) {
-          throw new Error("HTTP " + oResponse.status + " al crear job: " + await oResponse.text());
+          const oFailure = await oResponse.json();
+          throw new Error(oFailure.message || "HTTP " + oResponse.status + " al crear job.");
         }
 
         const oJob = await oResponse.json();
@@ -454,16 +511,17 @@ sap.ui.define([
           type: "Error",
           text: "No se pudo iniciar el job. " + (oError.message || oError)
         }]);
-        MessageBox.error("No se pudo iniciar el job de procesamiento.");
+        MessageBox.error("No se pudo iniciar el job de procesamiento. " + (oError.message || ""));
       }
     },
 
     _startJobPolling: function (sJobId) {
-      this._pollJobStatus(sJobId);
-
+      this._stopJobPolling();
+      this.getView().getModel("app").setProperty("/busy", true);
       this._jobPollTimer = setInterval(function () {
         this._pollJobStatus(sJobId);
-      }.bind(this), 5000);
+      }.bind(this), JOB_POLL_INTERVAL_MS);
+      this._pollJobStatus(sJobId);
     },
 
     _stopJobPolling: function () {
@@ -471,24 +529,47 @@ sap.ui.define([
         clearInterval(this._jobPollTimer);
         this._jobPollTimer = null;
       }
+      // Invalidar la respuesta pendiente antes de abortarla: puede pertenecer
+      // a una pantalla cerrada, una carga limpiada o un job anterior.
+      const oRequest = this._jobPollRequest;
+      this._jobPollRequest = null;
+      if (oRequest) {
+        clearTimeout(oRequest.timeout);
+        oRequest.controller.abort();
+      }
     },
 
     _pollJobStatus: async function (sJobId) {
+      if (this._jobPollRequest) {
+        return;
+      }
       const oModel = this.getView().getModel("app");
+      const oRequest = { controller: new AbortController() };
+      this._jobPollRequest = oRequest;
+      oRequest.timeout = setTimeout(function () {
+        oRequest.controller.abort();
+      }, JOB_POLL_TIMEOUT_MS);
 
       try {
         const oResponse = await fetch("/api/jobs/" + encodeURIComponent(sJobId), {
           method: "GET",
+          cache: "no-store",
+          signal: oRequest.controller.signal,
           headers: {
             "Accept": "application/json"
           }
         });
 
         if (!oResponse.ok) {
-          throw new Error("HTTP " + oResponse.status + " al consultar job: " + await oResponse.text());
+          const oFailure = new Error("HTTP " + oResponse.status + " al consultar el estado del job.");
+          oFailure.status = oResponse.status;
+          throw oFailure;
         }
 
         const oJob = await oResponse.json();
+        if (this._jobPollRequest !== oRequest) {
+          return;
+        }
         const bFinished = this._isTerminalJobStatus(oJob.status);
         const iTotalRows = Number(
           oJob.totalRows ||
@@ -502,6 +583,7 @@ sap.ui.define([
         oModel.setProperty("/jobStatus", oJob.status || "");
         oModel.setProperty("/jobStartedAt", oJob.startedAt || "");
         oModel.setProperty("/jobFinishedAt", oJob.finishedAt || "");
+        oModel.setProperty("/busy", !bFinished);
         oModel.setProperty("/totalRows", iTotalRows);
         oModel.setProperty("/validRows", oJob.validRows || oModel.getProperty("/validRows") || 0);
         oModel.setProperty("/errorRows", oJob.errorCount || 0);
@@ -525,15 +607,29 @@ sap.ui.define([
           }
         }
       } catch (oError) {
-        this._stopJobPolling();
-        oModel.setProperty("/busy", false);
-        oModel.setProperty("/jobStatusText", "Error de consulta");
-        oModel.setProperty("/jobState", "Error");
-        oModel.setProperty("/jobMessage", "No se pudo consultar el estado del job. " + (oError.message || oError));
+        if (this._jobPollRequest !== oRequest) {
+          return;
+        }
+        const bNeedsUserAction = [401, 403, 404].includes(oError.status);
+        const sMessage = bNeedsUserAction
+          ? "No se pudo consultar el estado del job. " + oError.message + " Revisa la sesion y el acceso. Esto no indica que el procesamiento haya fallado."
+          : "No se pudo actualizar el estado. Se reintentara automaticamente; no vuelvas a procesar el archivo.";
+        if (bNeedsUserAction) {
+          this._stopJobPolling();
+        }
+        oModel.setProperty("/busy", !bNeedsUserAction);
+        oModel.setProperty("/jobStatusText", bNeedsUserAction ? "Error de consulta" : "Reintentando consulta");
+        oModel.setProperty("/jobState", bNeedsUserAction ? "Error" : "Warning");
+        oModel.setProperty("/jobMessage", sMessage);
         oModel.setProperty("/messages", [{
-          type: "Error",
-          text: "No se pudo consultar el estado del job. " + (oError.message || oError)
+          type: bNeedsUserAction ? "Error" : "Warning",
+          text: sMessage
         }]);
+      } finally {
+        clearTimeout(oRequest.timeout);
+        if (this._jobPollRequest === oRequest) {
+          this._jobPollRequest = null;
+        }
       }
     },
 

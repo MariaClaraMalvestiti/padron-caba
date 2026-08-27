@@ -3,6 +3,7 @@ const { randomUUID } = require("node:crypto");
 
 const { callDestination, readJsonResponse, fetchCsrfToken } = require("./lib/destination");
 const jobStore = require("./lib/joblog-store");
+const { loadCompanyCustomers, assertCustomersInCompany, CompanyValidationError } = require("./lib/customer-company");
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -549,6 +550,26 @@ app.get("/api/company-codes", async function (req, res, next) {
   }
 });
 
+function sendCompanyValidationError(res, error) {
+  const known = error instanceof CompanyValidationError;
+  res.status(known ? error.statusCode : 503).json({
+    code: known ? error.code : "COMPANY_VALIDATION_UNAVAILABLE",
+    message: known ? error.message : "No se pudo validar la sociedad. No se inicio el procesamiento."
+  });
+}
+
+// Solo lectura; no se reutiliza el indice entre preparaciones ni entre jobs.
+app.get("/api/customer-company-index", async function (req, res) {
+  res.set("Cache-Control", "no-store");
+  try {
+    const companyCode = String(req.query.companyCode || "").trim();
+    const customers = await loadCompanyCustomers(BUSINESS_PARTNER_DESTINATION, companyCode);
+    res.json({ companyCode: companyCode, customers: Array.from(customers) });
+  } catch (error) {
+    sendCompanyValidationError(res, error);
+  }
+});
+
 app.get("/api/health", async function (req, res) {
   try {
     const store = await jobStore.ping();
@@ -599,8 +620,19 @@ app.post("/api/jobs", async function (req, res) {
     return;
   }
 
+  // Defensa de backend: una UI anterior o alterada no puede omitir este control.
+  // Debe completarse antes de persistir el job o modificar categorias/condiciones.
+  try {
+    const customers = await loadCompanyCustomers(BUSINESS_PARTNER_DESTINATION, companyCode);
+    assertCustomersInCompany(rows, customers, companyCode);
+  } catch (error) {
+    sendCompanyValidationError(res, error);
+    return;
+  }
+
   const jobRows = rows.map(function (row) {
     return Object.assign({}, row, {
+      customer: row.customer.trim(),
       companyCode: companyCode
     });
   });

@@ -30,6 +30,8 @@
                 selectedKey="{app>/companyCode}"
                 items="{app>/companyCodes}"
                 busy="{app>/loadingCompanyCodes}"
+                enabled="{= !${app>/busy} &amp;&amp; !${app>/loadingCompanyCodes} }"
+                selectionChange=".onReparse"
                 forceSelection="true">
                 <core:Item
                   key="{app>companyCode}"
@@ -43,6 +45,7 @@
                 id="fileUploader"
                 width="24rem"
                 sameFilenameAllowed="true"
+                enabled="{= !${app>/busy} &amp;&amp; !${app>/loadingCompanyCodes} &amp;&amp; ${app>/companyCode} !== '' }"
                 fileType="txt,csv"
                 change=".onFileChange"
                 placeholder="Seleccionar archivo de padron"/>
@@ -51,7 +54,7 @@
               text="Preparar carga"
               icon="sap-icon://upload-to-cloud"
               type="Emphasized"
-              enabled="{= ${app>/validRows} > 0 &amp;&amp; ${app>/companyCode} !== '' }"
+              enabled="{= !${app>/busy} &amp;&amp; ${app>/validRows} > 0 &amp;&amp; ${app>/companyCode} !== '' }"
               press=".onPrepareUpload"
               class="sapUiTinyMarginBottom"/>
           </HBox>
